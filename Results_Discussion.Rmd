@@ -1,0 +1,155 @@
+---
+title: "Results and Discussions"
+output:
+  word_document: default
+  word document: default
+date: "2022-12-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(car)
+library(alr4)
+library(faraway)
+library(MASS)
+library(corrr)
+library(dplyr)
+library(pastecs)
+library(lmtest)
+
+atus.sum <- read.delim('atussum_2021.dat', sep=",")
+head(atus.sum)
+dim(atus.sum)
+```
+#---------------------------------------------------------------
+
+# Exploratory Data Analysis
+
+```{R}
+# Get a count for all non-zero and non-null variables (-1 is null)
+head(colSums(atus.sum!=0 & atus.sum!=-1))
+
+```
+# Create a dataframe that only has values if earnings is valid
+```{r}
+atus.earnings = atus.sum
+```
+
+# Get a count of all non-zero/non-null
+# From these counts we can choose our independent variables
+```{r}
+colSums(atus.earnings!=0 & atus.earnings!=-1)
+atus.clean <- data.frame(matrix(nrow=9087, ncol=0))
+atus.clean$age.youngest.child <- atus.earnings$TRYHHCHILD
+atus.clean$age <- atus.earnings$TEAGE
+atus.clean$sex <- atus.earnings$TESEX
+atus.clean$schooling.level <- atus.earnings$PEEDUCA
+atus.clean$employed <- atus.earnings$TELFS
+atus.clean$full.time <- atus.earnings$TRDPFTPT
+atus.clean$weekly.earnings <- atus.earnings$TRERNWA/100
+atus.clean$num.children <- atus.earnings$TRCHILDNUM
+atus.clean$weekly.hours.worked <- atus.earnings$TEHRUSLT
+atus.clean$sleep <- atus.earnings$t010101
+head(atus.clean)
+```
+# Remove row if any column contains a zero or -1 (null)
+```{r}
+row_sub = apply(atus.clean, 1, function(row) all(row > 0))
+atus.clean <- atus.clean[row_sub,]
+
+colSums(atus.clean!=0 & atus.clean!=-1)
+dim(atus.clean)
+
+cor(atus.clean)
+sapply(atus.clean, sd)
+
+stat.desc(atus.clean)
+```
+
+```{r}
+atus.clean$sleep.log <- log(atus.clean$sleep)
+atus.clean$weekly.earnings.log <- log(atus.clean$weekly.earnings)
+atus.clean$sleep.scale <- scale(atus.clean$sleep)
+atus.clean$weekly.earnings.scale <- scale(atus.clean$weekly.earnings)
+atus.clean$weekly.hours.worked.scale <- scale(atus.clean$weekly.hours.worked)
+
+
+naive.model = lm(sleep.log ~ age + weekly.hours.worked + weekly.earnings, data=atus.clean)
+
+naive.model = lm(sleep ~ age + sex + weekly.earnings, data=atus.clean)
+
+naive.model = lm(sleep.scale ~ schooling.level + employed + weekly.hours.worked.scale + weekly.earnings.scale, data=atus.clean)
+
+summary(naive.model)
+vif(naive.model)
+```
+
+# Variable Selection
+```{r}
+mod_all <- lm(sleep ~ age.youngest.child + age + sex + schooling.level + 
+                employed + full.time + weekly.earnings + num.children + 
+                weekly.hours.worked, data = atus.clean)
+summary(mod_all)
+
+mod_red <- lm(sleep ~ age + full.time + weekly.earnings, data = atus.clean)
+summary(mod_red)
+
+mod_red2 <- lm(sleep ~ age + full.time + weekly.earnings + weekly.hours.worked, data = atus.clean)
+summary(mod_red2)
+```
+
+### Fulltime/Parttime models
+```{r}
+fulltime <- subset(atus.clean, full.time == 1)
+parttime <- subset(atus.clean, full.time == 2)
+
+full_mod <- lm(sleep ~ age  + weekly.earnings + weekly.hours.worked, data = fulltime)
+summary(full_mod)
+
+part_mod <- lm(sleep ~ age + weekly.earnings + weekly.hours.worked, data = parttime)
+summary(part_mod)
+```
+## Percentage of full time 
+```{r}
+table(atus.clean$full.time)
+table(atus.clean$full.time)
+100*sum(atus.clean$full.time==1)/(sum(atus.clean$full.time==1)+sum(atus.clean$full.time==2))
+```
+########## Model assumptions
+
+# Linearity
+
+```{r}
+predicted_sleep = predict(part_mod, parttime)
+error = parttime$sleep - predicted_sleep
+plot(x = predicted_sleep, y = error)
+```
+The plot of error versus the predicted value for the part time model shows a linear trend (Figure 1). Most of the data is clustered around longer sleep times, but there is no clear curve or other trend line, indicating that the linearity requirement is met. 
+# Normal residuals
+```{r}
+hist(error, freq = FALSE)
+dens <- density(error)
+lines(dens)
+```
+The histogram of model error shows a general normal distribution (Figure 2). There is no clear skew to the data and the distribution about the center of zero is approximately symmetric. 
+# Homoskedasticity
+```{r}
+bptest(part_mod, data = parttime)
+```
+The null hypothesis of this test is that there is homoscedasticity The results of the studentized Breusch-Pagan test indicate that this assumption is not met, BP(3) = 16.292, p < 0.001. This indicates that in this model, the variance of the residual is not constant and that the error term changes as the predictor variable changes. The model’s predictive strength, therefore, changes throughout the range of the predictor variables. 
+#Multicollinearity
+```{r}
+vif(part_mod)
+scatterplotMatrix(~ sleep + schooling.level  + employed + weekly.hours.worked.scale + weekly.earnings.log, data=atus.clean)
+
+residualPlots(naive.model)
+
+boxplot(atus.clean$sleep.log, horizontal=TRUE)
+```
+
+To determine multicollinearity, the variable inflation factor for each predictor was calculated. This metric determines the strength of the correlation between the independent variables and starts with a value of 1. Values of above 10 are considered to represent high multicollinearity and therefore invalidates the model. The VIF for age (1.06), weekly earnings (1.10), and hours worked (1.05) are all well below this threshold, and therefore the model meets this assumption. 
+
+
